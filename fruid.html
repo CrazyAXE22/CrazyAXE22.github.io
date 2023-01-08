@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta class="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE-EDGE" />
+    <meta name="viewport" content="width=device-width, initial scale:1.0" />
+    <title>Fruit Ninja</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        background: linear-gradient(rgb(20, 20, 60), rgb(40, 40, 80));
+      }
+
+      canvas {
+        margin: 0;
+        padding: 0;
+      }
+
+      .scoreHeader {
+        background: transparent;
+        position: fixed;
+        padding: 5px;
+        color: white;
+        text-shadow: 0 0 10px yellow;
+        font-size: 40px;
+        font-weight: 900;
+        animation: 1s dropin ease forwards;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+      }
+
+      @keyframes dropin {
+        from {
+          transform: translateY(-200%);
+        }
+        to {
+          transform: translate(0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      let c, ctx, fruits, priorPos, currentPos, scribbles, score;
+
+      const init = () => {
+        setupCanvas();
+        fruits = [];
+        scribbles = [];
+        score = 0;
+
+        c.addEventListener("touchstart", (e) => {
+          let x = e.touches[0].clientX;
+          let y = e.touches[0].clientY;
+          currentPos = [x, y];
+          scribbles.push(new Scribble(x, y));
+        });
+
+        c.addEventListener("touchmove", (e) => {
+          e.preventDefault();
+          let x = e.touches[0].clientX;
+          let y = e.touches[0].clientY;
+          priorPos = currentPos;
+          currentPos = [x, y];
+          let pp = priorPos;
+          let cp = currentPos;
+          scribbles[scribbles.length - 1].addPoint(x, y);
+          checkFruitCollisions(pp, cp);
+        });
+
+        loop();
+
+        setTimeout(addBunch, 2000);
+      };
+
+      async function addBunch() {
+        let number = Math.round(rand(7, 2));
+        while (number > 0) {
+          await timeout(100);
+          fruits.push(new fruit());
+          number--;
+        }
+        let to = Math.round(rand(4000, 1500));
+        await timeout(to);
+        addBunch();
+      }
+
+      function timeout(ms) {
+        return new Promise((res) => {
+          setTimeout(res, ms);
+        });
+      }
+
+      function checkFruitCollisions(pp, cp) {
+        for (let fruit of fruits) {
+          if (!pp || !cp) {
+            return;
+          }
+          let fp = [fruit.x, fruit.y];
+          let sp = scalarProjection(pp, cp, fp);
+          let distance;
+          if (sp < 0) {
+            distance = distanceBetweenPoints(pp, fp);
+          } else if (sp > 1) {
+            distance = distanceBetweenPoints(cp, fp);
+          } else {
+            distance = distanceBetweenPoints(vectorProjection(pp, cp, fp), fp);
+          }
+          if (distance <= fruit.radius && !fruit.split) {
+            fruit.split = true;
+            fruit.splitStart = performance.now();
+            score++;
+            updateScore();
+          }
+        }
+      }
+
+      function updateScore() {
+        let sb = document.querySelector("#score");
+        sb.textContent = score;
+      }
+
+      function loop() {
+        ctx.clearRect(0, 0, c.width, c.height);
+        let time = performance.now();
+
+        for (let fruit of fruits) {
+          fruit.updatePosition(time);
+          fruit.draw(ctx);
+        }
+        fruits = fruits.filter((f) => {
+          return !f.purge;
+        });
+        for (let scribble of scribbles) {
+          scribble.draw();
+        }
+        if (scribbles.length > 1) {
+          scribbles = scribbles.filter((s) => {
+            return s.points.length > 0;
+          });
+        }
+        window.requestAnimationFrame(loop);
+      }
+
+      function scalarProjection(priorPosition, currentPosition, fruitPosition) {
+        let b = [
+          fruitPosition[0] - priorPosition[0],
+          fruitPosition[1] - priorPosition[1],
+        ];
+        let a = [
+          currentPosition[0] - priorPosition[0],
+          currentPosition[1] - priorPosition[1],
+        ];
+        let aDotB = dotProduct(a, b);
+        let alength = vectorLength(a);
+        return aDotB / (alength * alength);
+      }
+
+      function vectorProjection(priorPosition, currentPosition, fruitPosition) {
+        let b = [
+          fruitPosition[0] - priorPosition[0],
+          fruitPosition[1] - priorPosition[1],
+        ];
+        let a = [
+          currentPosition[0] - priorPosition[0],
+          currentPosition[1] - priorPosition[1],
+        ];
+        let aDotB = dotProduct(a, b);
+        let alength = vectorLength(a);
+        let f = aDotB / (alength * alength);
+        return [f * a[0], f * a[1]];
+      }
+
+      function distanceBetweenPoints(a, b) {
+        return Math.sqrt(
+          (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1])
+        );
+      }
+
+      function vectorLength(a) {
+        return Math.sqrt(a[0] * a[0] + a[1] * a[1]);
+      }
+
+      function dotProduct(a, b) {
+        return a[0] * b[0] + a[1] * b[1];
+      }
+
+      function setupCanvas() {
+        c = document.querySelector("#mainCanvas");
+        c.width = window.innerWidth;
+        c.height = window.innerHeight;
+        ctx = c.getContext("2d");
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "white";
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      }
+
+      function getRandomFruitType() {
+        let fruitTypes = ["apple", "orange", "pear", "watermelon"];
+        return fruitTypes[Math.round(rand(fruitTypes.length - 1, 0))];
+      }
+
+      function fruit(xv, yv) {
+        xv = xv || rand(0.01, -0.01);
+        yv = yv || rand(-0.15, -0.09);
+        let w = window.innerWidth;
+        let h = window.innerHeight;
+        let scaleFactorY = h / 100;
+        let scaleFactorX = w / 100;
+        this.radius = rand(40, 25);
+        this.x = rand(0.75 * w, 0.25 * w);
+        this.y = h * 1.1;
+        this.initX = this.x;
+        this.initY = this.y;
+        this.xVel = xv * scaleFactorX;
+        this.yVel = yv * scaleFactorY;
+        this.yAccel = 6e-5 * scaleFactorY;
+        this.start = performance.now();
+        this.fruitType = getRandomFruitType();
+        this.split = false;
+        this.purge = false;
+        this.splitStart = performance.now();
+        this.splitXVel = rand(0.7, -0.7);
+        this.splitYVel = rand(0.7, -0.7);
+
+        this.updatePosition = (time) => {
+          time = time || performance.now();
+          let delT = time - this.start;
+          this.x = this.xVel * delT + this.initX;
+          this.y = this.yAccel * delT * delT + this.yVel * delT + this.initY;
+          if (this.split) {
+            this.radius -= 1;
+            this.radius = this.radius < 0 ? 0 : this.radius;
+            this.x += this.splitXVel * (time - this.splitStart);
+            this.y += this.splitYVel * (time - this.splitStart);
+          }
+          if (this.y > h * 1.2 || this.radius == 0) {
+            this.purge = true;
+          }
+        };
+
+        this.draw = (ctx) => {
+          ctx.save();
+          let { x, y, radius } = this;
+
+          ctx.fillStyle = this.getColor();
+          ctx.shadowBlur = 10 + rand(10, -5);
+          if (this.split) {
+            ctx.fillStyle = "white";
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = "orange";
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+          }
+
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.restore();
+        };
+
+        this.getColor = () => {
+          let color = "black";
+          switch (this.fruitType) {
+            case "apple":
+              color = "red";
+              break;
+            case "orange":
+              color = "orange";
+              break;
+            case "pear":
+              color = "blue";
+              break;
+            case "watermelon":
+              color = "green";
+              break;
+          }
+
+          let { x, y, radius } = this;
+          let gradient = ctx.createRadialGradient(
+            x,
+            y,
+            radius,
+            x - radius * 0.2,
+            y - radius * 0.2,
+            radius * 0.2
+          );
+          gradient.addColorStop(0, color);
+          gradient.addColorStop(1, "white");
+          return gradient;
+        };
+
+        return this;
+      }
+
+      function rand(max = 1, min = 0) {
+        return min + (max - min) * Math.random();
+      }
+
+      class Scribble {
+        addPoint = (x, y) => {
+          this.points.push([x, y]);
+          this.drawSingle(this.points.length - 1);
+          setTimeout(() => {
+            this.points.shift();
+          }, 100);
+        };
+
+        draw = () => {
+          for (let [i, point] of this.points.entries()) {
+            if (i === 0) {
+              continue;
+            } else {
+              let a = this.getAngle(i);
+              let newW = this.getWidth(i);
+              let lastW = this.getWidth(i - 1);
+              this.drawTaper(
+                this.points[i - 1][0],
+                this.points[i - 1][1],
+                point[0],
+                point[1],
+                lastW,
+                newW,
+                a
+              );
+            }
+          }
+        };
+
+        drawSingle = (index) => {
+          if (index !== 0) {
+            let a = this.getAngle(index);
+            let newW = this.getWidth(index);
+            let lastW = this.getWidth(index - 1);
+            this.drawTaper(
+              this.points[index - 1][0],
+              this.points[index - 1][1],
+              this.points[index][0],
+              this.points[index][1],
+              lastW,
+              newW,
+              a
+            );
+          }
+        };
+
+        getAngle = (index) => {
+          if (index === 0 || index >= this.points.length) {
+            return 0;
+          } else {
+            let dx = this.points[index - 1][0] - this.points[index][0];
+            let dy = this.points[index - 1][1] - this.points[index][1];
+            let a = Math.atan2(dy, dx);
+            return a;
+          }
+        };
+
+        getWidth = (index) => {
+          if (index === 0 || index >= this.points.length) {
+            return 3;
+          } else {
+            let a = this.getAngle(index);
+            let width =
+              this.min +
+              Math.abs((this.max - this.min) * Math.sin(a + this.shift));
+            return width;
+          }
+        };
+
+        drawTaper = (x1, y1, x2, y2, t1, t2, a) => {
+          ctx.save();
+          ctx.fillStyle = "white";
+          ctx.shadowColor = "lightgreen";
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+          ctx.shadowBlur = 20;
+          a = a + Math.PI / 2;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          let x = x1 + 0.5 * t1 * Math.cos(a);
+          let y = y1 + 0.5 * t1 * Math.sin(a);
+          ctx.lineTo(x, y);
+          x = x2 + 0.5 * t2 * Math.cos(a);
+          y = y2 + 0.5 * t2 * Math.sin(a);
+          ctx.lineTo(x, y);
+          a = a - Math.PI;
+          x = x2 + 0.5 * t2 * Math.cos(a);
+          y = y2 + 0.5 * t2 * Math.sin(a);
+          ctx.lineTo(x, y);
+          x = x1 + 0.5 * t1 * Math.cos(a);
+          y = y1 + 0.5 * t1 * Math.sin(a);
+          ctx.lineTo(x, y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(x1, y1, t1 / 2, 0, 2 * Math.PI);
+          ctx.arc(x2, y2, t2 / 2, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.restore();
+        };
+
+        constructor(x, y) {
+          this.points = [];
+          this.addPoint(x, y);
+          this.shift = Math.PI / 4;
+          this.min = 5;
+          this.max = 10;
+        }
+      }
+
+      window.onload = init;
+    </script>
+    <div class="scoreHeader">
+      <div id="score">0</div>
+    </div>
+       <canvas id="mainCanvas"></canvas>
+  </body>
+</html>
